@@ -57,4 +57,15 @@ class ES3Shader : public ES2Shader
 public:
     int uid_fAngle;
     int uid_nTime;
+    int uid_fUnderWaterness;
+};
+
+struct EmuShader
+{
+    ES3Shader *shader;
+    bool ownsShader;
+    unsigned int programFlags;
+    unsigned int pCodeHash;
+    unsigned int vCodeHash;
+    EmuShader *nextShader;
 };

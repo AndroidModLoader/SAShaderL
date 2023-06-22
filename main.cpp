@@ -8,7 +8,7 @@
 
 #include <GTASA_STRUCTS.h>
 
-MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0.0, RusJJ)
+MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
 // Savings
@@ -29,7 +29,9 @@ const char **blurShader, **gradingShader, **shadowResolve, **contrastVertex, **c
 CVector *m_VectorToSun;
 int *m_CurrentStoredValue;
 uint32_t *m_snTimeInMilliseconds;
+float* UnderWaterness;
 ES3Shader** fragShaders;
+ES3Shader** activeShader;
 
 // Own Funcs
 inline void freadfull(char* buf, size_t maxlen, FILE *f)
@@ -62,23 +64,23 @@ const char* FlagsToShaderName(int flags, bool isVertex)
                 return "compressedTexture2d";
                 
             case 0x800030:
-                return "vehReflectionTexture2d";
+                return NULL;//"vehReflectionTexture2d";
                 
             case 0x430:
             case 0x434:
-                return "fogTexture";
+                return NULL;//"fogTexture";
                 
             case 0x800410:
-                return "vehReflectionFog";
+                return NULL;//"vehReflectionFog";
                 
             case 0x130434:
-                return "fogTextureDetail";
+                return NULL;//"fogTextureDetail";
                 
             case 0x800430:
-                return "vehReflectionFogTexture";
+                return NULL;//"vehReflectionFogTexture";
                 
             case 0x2202A:
-                return "textureLight";
+                return NULL;//"textureLight";
                 
             case 0x80430:
             case 0x90430:
@@ -86,7 +88,7 @@ const char* FlagsToShaderName(int flags, bool isVertex)
                 
             case 0x2042A:
             case 0x2042E:
-                return "emissFog";
+                return NULL;//"emissFog";
         }
     }
     else // isFragment
@@ -123,23 +125,23 @@ const char* FlagsToShaderName(int flags, bool isVertex)
             case 0x92042A:
             case 0x82042A:
             case 0x12062A:
-                return "fogTexture";
+                return NULL;//"fogTexture";
                 
             case 0x4000030:
-                return "gammaTexture";
+                return NULL;//"gammaTexture";
             
             case 0x220432:
             case 0xA20432:
-                return "fogTextureCompressed";
+                return NULL;//"fogTextureCompressed";
                 
             case 0x2024B2:
             case 0x222532:
-                return "fogTextureBone";
+                return NULL;//"fogTextureBone";
                 
             case 0x12042E:
             case 0x12062E:
             case 0x434:
-                return "fogTextureAlpha";
+                return NULL;//"fogTextureAlpha";
                 
             case 0x80430:
                 return "waterFogTexture";
@@ -247,45 +249,16 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
     
     self->uid_fAngle = _glGetUniformLocation(self->nShaderId, "SunVector");
     self->uid_nTime = _glGetUniformLocation(self->nShaderId, "Time");
+    self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
 }
-DECL_HOOKv(WeatherUpdate, void* self)
+DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
 {
-    WeatherUpdate(self);
-    
-    static uint32_t next = 0;
-    if(*m_snTimeInMilliseconds > next)
-    {
-        next = *m_snTimeInMilliseconds + 100;
-        
-        for(char i = 0; i < 4; ++i)
-        {
-            ES3Shader* s = fragShaders[i];
-            if(s && s->uid_fAngle >= 0)
-            {
-                _glUniform1fv(s->uid_fAngle, 3, (float*)&m_VectorToSun[*m_CurrentStoredValue]);
-            }
-        }
-    }
-}
-DECL_HOOKv(TimerUpdate, void* self)
-{
-    TimerUpdate(self);
-    
-    static uint32_t next = 0;
-    if(*m_snTimeInMilliseconds > next)
-    {
-        next = *m_snTimeInMilliseconds + 10;
-        logger->Info("time?");
-        for(char i = 0; i < 4; ++i)
-        {
-            ES3Shader* s = fragShaders[i];
-            if(s && s->uid_nTime >= 0)
-            {
-                logger->Info("set?");
-                _glUniform1i(s->uid_nTime, *m_snTimeInMilliseconds);
-            }
-        }
-    }
+    ES3Shader* shader = **ptr;
+    RQ_Command_rqSelectShader(ptr);
+
+    if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, (float*)&m_VectorToSun[*m_CurrentStoredValue]);
+    if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
+    if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
 }
 
 // Patch funcs
@@ -320,6 +293,7 @@ extern "C" void OnModLoad()
     SET_TO(contrastVertex, aml->GetSym(hGTASA, "contrastVShader"));
     SET_TO(contrastFragment, aml->GetSym(hGTASA, "contrastPShader"));
     
+    // Other shaders (unstable as hell!)
     HOOK(RQShaderBuildSource, aml->GetSym(hGTASA, "_ZN8RQShader11BuildSourceEjPPKcS2_"));
     
     FILE *pFile;
@@ -367,14 +341,16 @@ extern "C" void OnModLoad()
     
     BuildShader_BackTo = pGTASA + 0x1CD838 + 0x1;
     aml->Redirect(pGTASA + 0x1CD830 + 0x1, (uintptr_t)BuildShader_inject);
+
     HOOKPLT(InitES2Shader, pGTASA + 0x671BDC);
-    HOOKPLT(WeatherUpdate, pGTASA + 0x671DF4);
-    HOOKPLT(TimerUpdate, pGTASA + 0x6711E8);
+    HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x67632C);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
     SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x6755EC));
     SET_TO(_glUniform1i, *(void**)(pGTASA + 0x674484));
     SET_TO(_glUniform1fv, *(void**)(pGTASA + 0x672388));
     SET_TO(fragShaders, pGTASA + 0x6B408C);
+    SET_TO(activeShader, aml->GetSym(hGTASA, "_ZN9ES2Shader12activeShaderE"));
     SET_TO(m_VectorToSun, aml->GetSym(hGTASA, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(m_CurrentStoredValue, aml->GetSym(hGTASA, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
     SET_TO(m_snTimeInMilliseconds, aml->GetSym(hGTASA, "_ZN6CTimer22m_snTimeInMillisecondsE"));
+    SET_TO(UnderWaterness, aml->GetSym(hGTASA, "_ZN8CWeather14UnderWaternessE"));
 }
