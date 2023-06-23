@@ -32,7 +32,7 @@ CVector *m_VectorToSun;
 int *m_CurrentStoredValue;
 uint32_t *m_snTimeInMilliseconds, *curShaderStateFlags;
 uint8_t *ms_nGameClockSeconds, *ms_nGameClockMinutes;
-float* UnderWaterness;
+float *UnderWaterness, *WetRoads;
 CCamera* TheCamera;
 ES3Shader** fragShaders;
 ES3Shader** activeShader;
@@ -100,6 +100,7 @@ inline const char* FlagsToShaderName(int flags, bool isVertex)
             case 0x10120630:
             case 0x10130430:
             case 0x10120430:
+            case 0x1011042A:
                 return "building/textured2Colors_light";
         }
     }
@@ -138,6 +139,7 @@ inline const char* FlagsToShaderName(int flags, bool isVertex)
             case 0x10110430:
             case 0x10130430:
             case 0x1013042A:
+            case 0x1011042A:
                 return "building/textured2Colors";
 
             case 0x8000010:
@@ -275,6 +277,7 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
     self->uid_nTime = _glGetUniformLocation(self->nShaderId, "Time");
     self->uid_nGameTimeSeconds = _glGetUniformLocation(self->nShaderId, "GameTimeSeconds");
     self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
+    self->uid_fRoadsWetness = _glGetUniformLocation(self->nShaderId, "RoadsWetness");
     self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
 }
 DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
@@ -287,6 +290,7 @@ DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
     if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
     if(shader->uid_nGameTimeSeconds >= 0) _glUniform1i(shader->uid_nGameTimeSeconds, (int)*ms_nGameClockMinutes * 60 + (int)*ms_nGameClockSeconds);
     if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
+    if(shader->uid_fRoadsWetness >= 0) _glUniform1fv(shader->uid_fRoadsWetness, 1, WetRoads);
     if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
 }
 DECL_HOOKv(RenderSkyPolys)
@@ -404,5 +408,6 @@ extern "C" void OnModLoad()
     SET_TO(ms_nGameClockMinutes, aml->GetSym(hGTASA, "_ZN6CClock20ms_nGameClockMinutesE"));
     SET_TO(ms_nGameClockSeconds, aml->GetSym(hGTASA, "_ZN6CClock20ms_nGameClockSecondsE"));
     SET_TO(UnderWaterness, aml->GetSym(hGTASA, "_ZN8CWeather14UnderWaternessE"));
+    SET_TO(WetRoads, aml->GetSym(hGTASA, "_ZN8CWeather8WetRoadsE"));
     SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
 }

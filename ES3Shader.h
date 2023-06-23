@@ -41,5 +41,6 @@ public:
     int uid_nTime;
     int uid_nGameTimeSeconds;
     int uid_fUnderWaterness;
+    int uid_fRoadsWetness;
     int uid_fFarClipDist;
 };
