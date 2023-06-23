@@ -66,8 +66,41 @@ inline const char* FlagsToShaderName(int flags, bool isVertex)
                 return "waterDetailed";
 
             // Custom shaders below
+
             case 0x8000010:
                 return "sky";
+
+            case 0x1010040A:
+                return "building/untextured";
+
+            case 0x10020430:
+                return "building/textured_compressedTex";
+            case 0x12020430:
+                return "building/textured_compressedTex_normal";
+            case 0x10220432:
+                return "building/textured_compressedTex_light";
+            case 0x10222432:
+                return "building/textured_compressedTex_light2";
+
+            case 0x1010042A:
+                return "building/textured2Colors_light";
+
+            case 0x1013042A:
+            case 0x1012042A:
+                return "building/textured2Colors_comp_light";
+
+            case 0x10110430:
+            case 0x10100430:
+                return "building/textured2Colors";
+
+            case 0x1092042A:
+                return "building/textured2Colors_xenv";
+
+            case 0x10120434:
+            case 0x10120630:
+            case 0x10130430:
+            case 0x10120430:
+                return "building/textured2Colors_light";
         }
     }
     else // isFragment
@@ -85,6 +118,28 @@ inline const char* FlagsToShaderName(int flags, bool isVertex)
                 return "waterDetailed";
 
             // Custom shaders below
+
+            case 0x1010040A:
+                return "building/untextured";
+
+            case 0x10020430:
+            case 0x12020430:
+            case 0x10220432:
+            case 0x10222432:
+                return "building/textured";
+
+            case 0x10100430:
+            case 0x10120430:
+            case 0x10120630:
+            case 0x1010042A:
+            case 0x1012042A:
+            case 0x1092042A:
+            case 0x10120434:
+            case 0x10110430:
+            case 0x10130430:
+            case 0x1013042A:
+                return "building/textured2Colors";
+
             case 0x8000010:
                 return "sky";
         }
