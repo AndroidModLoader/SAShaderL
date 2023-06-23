@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "GTASA_STRUCTS.h"
 
 #define FLAG_ALPHA_TEST           0x01
 #define FLAG_LIGHTING             0x02
@@ -26,46 +27,19 @@
 #define FLAG_TEXMATRIX            0x2000000
 #define FLAG_GAMMA                0x4000000
 
-enum RQShaderVectorConstantID
-{
-    
-};
-enum RQShaderMatrixConstantID
-{
-    
-};
-
-class ES2Shader
-{
-public:
-    //virtual ~ES2Shader() = 0; // Auto
-    virtual void Destruct() = 0;
-    virtual void SetVectorConstant(RQShaderVectorConstantID, float const*, int) = 0;
-    virtual void SetMatrixConstant(RQShaderMatrixConstantID, float const*) = 0;
-    virtual void SetBonesConstant(int, float const*) = 0;
-    virtual void SetColorAttribute(float const*) = 0;
-    virtual void Select() = 0;
-    
-public:
-    char pad1[1000-4]; // minus vtable
-    int nShaderId;
-    char pad2[4];
-};
+#define FLAG_CUSTOM_SKY           0x8000000
+#define FLAG_CUSTOM_BUILDING      0x10000000
+#define FLAG_CUSTOM3              0x20000000
+#define FLAG_CUSTOM2              0x40000000
+#define FLAG_CUSTOM1              0x80000000
 
 class ES3Shader : public ES2Shader
 {
 public:
+    int uid_nShaderFlags;
     int uid_fAngle;
     int uid_nTime;
+    int uid_nGameTimeSeconds;
     int uid_fUnderWaterness;
-};
-
-struct EmuShader
-{
-    ES3Shader *shader;
-    bool ownsShader;
-    unsigned int programFlags;
-    unsigned int pCodeHash;
-    unsigned int vCodeHash;
-    EmuShader *nextShader;
+    int uid_fFarClipDist;
 };

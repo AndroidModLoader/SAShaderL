@@ -4,15 +4,17 @@
 #include <dlfcn.h>
 
 #include <stdio.h>
-#include "ES2Shader.h"
+#include "ES3Shader.h"
 
 #include <GTASA_STRUCTS.h>
+
+//#define DUMP_SHADERS
 
 MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
 // Savings
-#define SHADER_LEN (4096)
+#define SHADER_LEN (16384)
 #define FRAGMENT_SHADER_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/fragment/" #__var2 ".glsl", aml->GetAndroidDataPath());
 #define VERTEX_SHADER_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/vertex/" #__var2 ".glsl", aml->GetAndroidDataPath());
 #define FRAGMENT_SHADER_GEN_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/fragment/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
@@ -28,8 +30,10 @@ char blurShaderOwn[SHADER_LEN], gradingShaderOwn[SHADER_LEN], shadowResolveOwn[S
 const char **blurShader, **gradingShader, **shadowResolve, **contrastVertex, **contrastFragment;
 CVector *m_VectorToSun;
 int *m_CurrentStoredValue;
-uint32_t *m_snTimeInMilliseconds;
+uint32_t *m_snTimeInMilliseconds, *curShaderStateFlags;
+uint8_t *ms_nGameClockSeconds, *ms_nGameClockMinutes;
 float* UnderWaterness;
+CCamera* TheCamera;
 ES3Shader** fragShaders;
 ES3Shader** activeShader;
 
@@ -45,7 +49,7 @@ inline void freadfull(char* buf, size_t maxlen, FILE *f)
     }
     buf[i-1] = 0;
 }
-const char* FlagsToShaderName(int flags, bool isVertex)
+inline const char* FlagsToShaderName(int flags, bool isVertex)
 {
     if(isVertex)
     {
@@ -53,42 +57,17 @@ const char* FlagsToShaderName(int flags, bool isVertex)
         {
             case 0x10:
             case 0x200010:
+                return "untextured2D";
             case 0x4000010:
-                return "color";
-                
-            case 0x30:
-            case 0x4000030:
-                return "texture2d";
-                
-            case 0x220030:
-                return "compressedTexture2d";
-                
-            case 0x800030:
-                return NULL;//"vehReflectionTexture2d";
-                
-            case 0x430:
-            case 0x434:
-                return NULL;//"fogTexture";
-                
-            case 0x800410:
-                return NULL;//"vehReflectionFog";
-                
-            case 0x130434:
-                return NULL;//"fogTextureDetail";
-                
-            case 0x800430:
-                return NULL;//"vehReflectionFogTexture";
-                
-            case 0x2202A:
-                return NULL;//"textureLight";
-                
+                return "gammaColor2D";
             case 0x80430:
+                return "water";
             case 0x90430:
-                return "waterFogTexture";
-                
-            case 0x2042A:
-            case 0x2042E:
-                return NULL;//"emissFog";
+                return "waterDetailed";
+
+            // Custom shaders below
+            case 0x8000010:
+                return "sky";
         }
     }
     else // isFragment
@@ -97,63 +76,23 @@ const char* FlagsToShaderName(int flags, bool isVertex)
         {
             case 0x10:
             case 0x200010:
-            case 0x200090:
-            case 0x200110:
-                return "color";
-                
+                return "untextured2D";
             case 0x4000010:
-                return "gammaColor";
-                
-            case 0x800410:
-            case 0x202412:
-            case 0x10040A:
-            case 0x90040A:
-                return "fog";
-                
-            case 0x30:
-            case 0x220030:
-            case 0x800030:
-            case 0x2202A:
-                return "texture2d";
-                
-            case 0x430:
-            case 0x800430:
-            case 0x222432:
-            case 0xA22432:
-            case 0x2042A:
-            case 0x12042A:
-            case 0x92042A:
-            case 0x82042A:
-            case 0x12062A:
-                return NULL;//"fogTexture";
-                
-            case 0x4000030:
-                return NULL;//"gammaTexture";
-            
-            case 0x220432:
-            case 0xA20432:
-                return NULL;//"fogTextureCompressed";
-                
-            case 0x2024B2:
-            case 0x222532:
-                return NULL;//"fogTextureBone";
-                
-            case 0x12042E:
-            case 0x12062E:
-            case 0x434:
-                return NULL;//"fogTextureAlpha";
-                
+                return "gammaColor2D";
             case 0x80430:
-                return "waterFogTexture";
-                
+                return "water";
             case 0x90430:
-                return "waterFogDetailTexture";
+                return "waterDetailed";
+
+            // Custom shaders below
+            case 0x8000010:
+                return "sky";
         }
     }
     return NULL;
 }
 template <size_t size>
-void FlagToName(int flags, char (&out)[size])
+inline void FlagToName(int flags, char (&out)[size])
 {
     out[0] = 0;
     if(flags & FLAG_ALPHA_TEST) strlcat(out, "Atest", size);
@@ -181,65 +120,94 @@ void FlagToName(int flags, char (&out)[size])
     if(flags & FLAG_SPHERE_ENVMAP) strlcat(out, "Envmap", size);
     if(flags & FLAG_TEXMATRIX) strlcat(out, "Matrix", size);
     if(flags & FLAG_GAMMA) strlcat(out, "Gamma", size);
+
+    if(flags & FLAG_CUSTOM_SKY) strlcat(out, "Sky", size);
+    if(flags & FLAG_CUSTOM_BUILDING) strlcat(out, "Building", size);
 }
 
 // Game Funcs
+EmuShader* (*emu_CustomShaderCreate)(const char* fragShad, const char* vertShad);
 int (*_glGetUniformLocation)(int, const char*);
 void (*_glUniform1i)(int, int);
 void (*_glUniform1fv)(int, int, const float*);
 DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
 {
     int ret = RQShaderBuildSource(flags, pxlsrc, vtxsrc);
-    
     FILE *pFile;
     char szTmp[256], szNameCat[128];
     FlagToName(flags, szNameCat);
     
-    const char* fragName = FlagsToShaderName(flags, false);
-    if(fragName)
-    {
-        FRAGMENT_SHADER_GEN_STORAGE(szTmp, fragName);
-        pFile = fopen(szTmp, "r");
-        if(pFile != NULL)
+    #ifdef DUMP_SHADERS
+        const char* fragName = FlagsToShaderName(flags, false);
+        if(fragName)
         {
-            freadfull(*pxlsrc, 4095, pFile);
-            //fwrite(*pxlsrc, 1, strlen(*pxlsrc), pFile);
-            fclose(pFile);
+            FRAGMENT_SHADER_GEN_STORAGE(szTmp, fragName);
+            pFile = fopen(szTmp, "w");
+            if(pFile != NULL)
+            {
+                fwrite(*pxlsrc, 1, strlen(*pxlsrc), pFile);
+                fclose(pFile);
+            }
         }
-    }
-    /*else
-    {
-        sprintf(szTmp, "%s/shaders/f/F_%s_0x%X.glsl", aml->GetAndroidDataPath(), szNameCat, flags);
-        pFile = fopen(szTmp, "w");
-        if(pFile != NULL)
+        else
         {
-            fwrite(*pxlsrc, 1, strlen(*pxlsrc), pFile);
-            fclose(pFile);
+            sprintf(szTmp, "%s/shaders/f/F_%s_0x%X.glsl", aml->GetAndroidDataPath(), szNameCat, flags);
+            pFile = fopen(szTmp, "w");
+            if(pFile != NULL)
+            {
+                fwrite(*pxlsrc, 1, strlen(*pxlsrc), pFile);
+                fclose(pFile);
+            }
         }
-    }*/
-    
-    const char* vertName = FlagsToShaderName(flags, true);
-    if(vertName)
-    {
-        VERTEX_SHADER_GEN_STORAGE(szTmp, vertName);
-        pFile = fopen(szTmp, "r");
-        if(pFile != NULL)
+        
+        const char* vertName = FlagsToShaderName(flags, true);
+        if(vertName)
         {
-            freadfull(*vtxsrc, 4095, pFile);
-            //fwrite(*vtxsrc, 1, strlen(*vtxsrc), pFile);
-            fclose(pFile);
+            VERTEX_SHADER_GEN_STORAGE(szTmp, vertName);
+            pFile = fopen(szTmp, "w");
+            if(pFile != NULL)
+            {
+                fwrite(*vtxsrc, 1, strlen(*vtxsrc), pFile);
+                fclose(pFile);
+            }
         }
-    }
-    /*else
-    {
-        sprintf(szTmp, "%s/shaders/v/F_%s_0x%X.glsl", aml->GetAndroidDataPath(), szNameCat, flags);
-        pFile = fopen(szTmp, "w");
-        if(pFile != NULL)
+        else
         {
-            fwrite(*vtxsrc, 1, strlen(*vtxsrc), pFile);
-            fclose(pFile);
+            sprintf(szTmp, "%s/shaders/v/F_%s_0x%X.glsl", aml->GetAndroidDataPath(), szNameCat, flags);
+            pFile = fopen(szTmp, "w");
+            if(pFile != NULL)
+            {
+                fwrite(*vtxsrc, 1, strlen(*vtxsrc), pFile);
+                fclose(pFile);
+            }
         }
-    }*/
+    #else
+        const char* fragName = FlagsToShaderName(flags, false);
+        if(fragName)
+        {
+            FRAGMENT_SHADER_GEN_STORAGE(szTmp, fragName);
+            pFile = fopen(szTmp, "r");
+            if(pFile != NULL)
+            {
+                logger->Info("Loading custom fragment shader \"%s\"", fragName);
+                freadfull(*pxlsrc, 4095, pFile);
+                fclose(pFile);
+            }
+        }
+        
+        const char* vertName = FlagsToShaderName(flags, true);
+        if(vertName)
+        {
+            VERTEX_SHADER_GEN_STORAGE(szTmp, vertName);
+            pFile = fopen(szTmp, "r");
+            if(pFile != NULL)
+            {
+                logger->Info("Loading custom vertex shader \"%s\"", vertName);
+                freadfull(*vtxsrc, 4095, pFile);
+                fclose(pFile);
+            }
+        }
+    #endif
     
     return ret;
 }
@@ -247,18 +215,38 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
 {
     InitES2Shader(self);
     
+    self->uid_nShaderFlags = _glGetUniformLocation(self->nShaderId, "ShaderFlags");
     self->uid_fAngle = _glGetUniformLocation(self->nShaderId, "SunVector");
     self->uid_nTime = _glGetUniformLocation(self->nShaderId, "Time");
+    self->uid_nGameTimeSeconds = _glGetUniformLocation(self->nShaderId, "GameTimeSeconds");
     self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
+    self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
 }
 DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
 {
     ES3Shader* shader = **ptr;
     RQ_Command_rqSelectShader(ptr);
 
+    if(shader->uid_nShaderFlags >= 0) _glUniform1i(shader->uid_nShaderFlags, shader->flags);
     if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, (float*)&m_VectorToSun[*m_CurrentStoredValue]);
     if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
+    if(shader->uid_nGameTimeSeconds >= 0) _glUniform1i(shader->uid_nGameTimeSeconds, (int)*ms_nGameClockMinutes * 60 + (int)*ms_nGameClockSeconds);
     if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
+    if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
+}
+DECL_HOOKv(RenderSkyPolys)
+{
+    *curShaderStateFlags |= FLAG_CUSTOM_SKY;
+    RenderSkyPolys();
+    *curShaderStateFlags &= ~FLAG_CUSTOM_SKY;
+}
+DECL_HOOKv(OnEntityRender, CEntity* self)
+{
+    if(self->m_nType == ENTITY_TYPE_BUILDING) *curShaderStateFlags |= FLAG_CUSTOM_BUILDING;
+
+    OnEntityRender(self);
+
+    if(self->m_nType == ENTITY_TYPE_BUILDING) *curShaderStateFlags &= ~FLAG_CUSTOM_BUILDING;
 }
 
 // Patch funcs
@@ -344,13 +332,22 @@ extern "C" void OnModLoad()
 
     HOOKPLT(InitES2Shader, pGTASA + 0x671BDC);
     HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x67632C);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
+    HOOK(RenderSkyPolys, aml->GetSym(hGTASA, "_ZN7CClouds14RenderSkyPolysEv"));
+    HOOK(OnEntityRender, aml->GetSym(hGTASA, "_ZN7CEntity6RenderEv"));
+
     SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x6755EC));
     SET_TO(_glUniform1i, *(void**)(pGTASA + 0x674484));
     SET_TO(_glUniform1fv, *(void**)(pGTASA + 0x672388));
+    SET_TO(emu_CustomShaderCreate, aml->GetSym(hGTASA, "_Z22emu_CustomShaderCreatePKcS0_"));
+
     SET_TO(fragShaders, pGTASA + 0x6B408C);
     SET_TO(activeShader, aml->GetSym(hGTASA, "_ZN9ES2Shader12activeShaderE"));
     SET_TO(m_VectorToSun, aml->GetSym(hGTASA, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(m_CurrentStoredValue, aml->GetSym(hGTASA, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
     SET_TO(m_snTimeInMilliseconds, aml->GetSym(hGTASA, "_ZN6CTimer22m_snTimeInMillisecondsE"));
+    SET_TO(curShaderStateFlags, aml->GetSym(hGTASA, "curShaderStateFlags"));
+    SET_TO(ms_nGameClockMinutes, aml->GetSym(hGTASA, "_ZN6CClock20ms_nGameClockMinutesE"));
+    SET_TO(ms_nGameClockSeconds, aml->GetSym(hGTASA, "_ZN6CClock20ms_nGameClockSecondsE"));
     SET_TO(UnderWaterness, aml->GetSym(hGTASA, "_ZN8CWeather14UnderWaternessE"));
+    SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
 }
