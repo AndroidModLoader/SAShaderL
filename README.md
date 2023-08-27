@@ -10,6 +10,7 @@ I am creating new uniforms for shaders such as:
 - uniform float UnderWaterness; // If the camera is underwater, this value is NOT 0! **Values are 0.0 - 1.0**
 - uniform float RoadsWetness; // Shows how much wet roads are. **Values are 0.0 - 1.0**
 - uniform float FarClipDist; // Almost all the time it's 800.0, but not with the mod!
+- uniform int EntityModel; // Model index of the last entity being draw (-1 if no model)
 
 Few things to notice:
 - Shader size is limited to 4 kilobytes, except "blur", "grading", "shadowResolve", "contrast". They are 16 kilobytes maximum.

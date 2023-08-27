@@ -1,7 +1,6 @@
 #include <mod/amlmod.h>
 #include <mod/logger.h>
 #include <mod/config.h>
-#include <dlfcn.h>
 
 #include <stdio.h>
 #include "ES3Shader.h"
@@ -21,7 +20,9 @@ NEEDGAME(com.rockstargames.gtasa)
 #define VERTEX_SHADER_GEN_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/vertex/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
 uintptr_t pGTASA;
 void* hGTASA;
-char blurShaderOwn[SHADER_LEN], gradingShaderOwn[SHADER_LEN], shadowResolveOwn[SHADER_LEN], contrastVertexOwn[SHADER_LEN], contrastFragmentOwn[SHADER_LEN];
+char blurShaderOwn[SHADER_LEN + 1], gradingShaderOwn[SHADER_LEN + 1], shadowResolveOwn[SHADER_LEN + 1], contrastVertexOwn[SHADER_LEN + 1], contrastFragmentOwn[SHADER_LEN + 1];
+char customPixelShader[SHADER_LEN + 1], customVertexShader[SHADER_LEN + 1];
+int lastModelId = -1;
 
 // Config
 
@@ -247,7 +248,7 @@ DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
             if(pFile != NULL)
             {
                 logger->Info("Loading custom fragment shader \"%s\"", fragName);
-                freadfull(*pxlsrc, 4095, pFile);
+                freadfull(*pxlsrc, SHADER_LEN, pFile);
                 fclose(pFile);
             }
         }
@@ -260,7 +261,7 @@ DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
             if(pFile != NULL)
             {
                 logger->Info("Loading custom vertex shader \"%s\"", vertName);
-                freadfull(*vtxsrc, 4095, pFile);
+                freadfull(*vtxsrc, SHADER_LEN, pFile);
                 fclose(pFile);
             }
         }
@@ -279,6 +280,7 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
     self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
     self->uid_fRoadsWetness = _glGetUniformLocation(self->nShaderId, "RoadsWetness");
     self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
+    self->uid_nEntityModel = _glGetUniformLocation(self->nShaderId, "EntityModel");
 }
 DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
 {
@@ -292,6 +294,7 @@ DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
     if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
     if(shader->uid_fRoadsWetness >= 0) _glUniform1fv(shader->uid_fRoadsWetness, 1, WetRoads);
     if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
+    if(shader->uid_nEntityModel >= 0) _glUniform1i(shader->uid_nEntityModel, lastModelId);
 }
 DECL_HOOKv(RenderSkyPolys)
 {
@@ -301,11 +304,16 @@ DECL_HOOKv(RenderSkyPolys)
 }
 DECL_HOOKv(OnEntityRender, CEntity* self)
 {
-    if(self->m_nType == ENTITY_TYPE_BUILDING) *curShaderStateFlags |= FLAG_CUSTOM_BUILDING;
-
+    if(self->m_nType == ENTITY_TYPE_BUILDING)
+    {
+        lastModelId = self->m_nModelIndex;
+        *curShaderStateFlags |= FLAG_CUSTOM_BUILDING;
+        OnEntityRender(self);
+        *curShaderStateFlags &= ~FLAG_CUSTOM_BUILDING;
+        lastModelId = -1;
+        return;
+    }
     OnEntityRender(self);
-
-    if(self->m_nType == ENTITY_TYPE_BUILDING) *curShaderStateFlags &= ~FLAG_CUSTOM_BUILDING;
 }
 
 // Patch funcs
@@ -332,7 +340,7 @@ extern "C" void OnModLoad()
 {
     logger->SetTag("SA ShaderLoader");
     pGTASA = aml->GetLib("libGTASA.so");
-    hGTASA = dlopen("libGTASA.so", RTLD_LAZY);
+    hGTASA = aml->GetLibHandle("libGTASA.so");
     
     SET_TO(blurShader, aml->GetSym(hGTASA, "blurPShader"));
     SET_TO(gradingShader, aml->GetSym(hGTASA, "gradingPShader"));
@@ -341,7 +349,7 @@ extern "C" void OnModLoad()
     SET_TO(contrastFragment, aml->GetSym(hGTASA, "contrastPShader"));
     
     // Other shaders (unstable as hell!)
-    HOOK(RQShaderBuildSource, aml->GetSym(hGTASA, "_ZN8RQShader11BuildSourceEjPPKcS2_"));
+    HOOKPLT(RQShaderBuildSource, pGTASA + 0x6720F8);
     
     FILE *pFile;
     char szTmp[256];
@@ -391,7 +399,7 @@ extern "C" void OnModLoad()
 
     HOOKPLT(InitES2Shader, pGTASA + 0x671BDC);
     HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x67632C);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
-    HOOK(RenderSkyPolys, aml->GetSym(hGTASA, "_ZN7CClouds14RenderSkyPolysEv"));
+    HOOKPLT(RenderSkyPolys, pGTASA + 0x670A7C);
     HOOK(OnEntityRender, aml->GetSym(hGTASA, "_ZN7CEntity6RenderEv"));
 
     SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x6755EC));
@@ -410,4 +418,102 @@ extern "C" void OnModLoad()
     SET_TO(UnderWaterness, aml->GetSym(hGTASA, "_ZN8CWeather14UnderWaternessE"));
     SET_TO(WetRoads, aml->GetSym(hGTASA, "_ZN8CWeather8WetRoadsE"));
     SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
+    
+    aml->WriteAddr(pGTASA + 0x1CF73C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEA48);
+    aml->WriteAddr(pGTASA + 0x1CF7AC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEAD0);
+    aml->WriteAddr(pGTASA + 0x1CF7C0, (uintptr_t)&customVertexShader - pGTASA - 0x1CEB44);
+    aml->WriteAddr(pGTASA + 0x1CF7CC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEB8C);
+    aml->WriteAddr(pGTASA + 0x1CF7D4, (uintptr_t)&customVertexShader - pGTASA - 0x1CEBB0);
+    aml->WriteAddr(pGTASA + 0x1CF7E0, (uintptr_t)&customVertexShader - pGTASA - 0x1CEBF0);
+    aml->WriteAddr(pGTASA + 0x1CF7EC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEC2A);
+    aml->WriteAddr(pGTASA + 0x1CF80C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEC86);
+    aml->WriteAddr(pGTASA + 0x1CF814, (uintptr_t)&customVertexShader - pGTASA - 0x1CEC6C);
+    aml->WriteAddr(pGTASA + 0x1CF81C, (uintptr_t)&customVertexShader - pGTASA - 0x1CECA6);
+    aml->WriteAddr(pGTASA + 0x1CF824, (uintptr_t)&customVertexShader - pGTASA - 0x1CECCC);
+    aml->WriteAddr(pGTASA + 0x1CF838, (uintptr_t)&customVertexShader - pGTASA - 0x1CED30);
+    aml->WriteAddr(pGTASA + 0x1CF840, (uintptr_t)&customVertexShader - pGTASA - 0x1CED58);
+    aml->WriteAddr(pGTASA + 0x1CF848, (uintptr_t)&customVertexShader - pGTASA - 0x1CEDA2);
+    aml->WriteAddr(pGTASA + 0x1CF850, (uintptr_t)&customVertexShader - pGTASA - 0x1CED88);
+    aml->WriteAddr(pGTASA + 0x1CF858, (uintptr_t)&customVertexShader - pGTASA - 0x1CEDC2);
+    aml->WriteAddr(pGTASA + 0x1CF860, (uintptr_t)&customVertexShader - pGTASA - 0x1CEDEE);
+    aml->WriteAddr(pGTASA + 0x1CF868, (uintptr_t)&customVertexShader - pGTASA - 0x1CEE14);
+    aml->WriteAddr(pGTASA + 0x1CF874, (uintptr_t)&customVertexShader - pGTASA - 0x1CEE56);
+    aml->WriteAddr(pGTASA + 0x1CF888, (uintptr_t)&customVertexShader - pGTASA - 0x1CEECC);
+    aml->WriteAddr(pGTASA + 0x1CF894, (uintptr_t)&customVertexShader - pGTASA - 0x1CEF0E);
+    aml->WriteAddr(pGTASA + 0x1CF89C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEF46);
+    aml->WriteAddr(pGTASA + 0x1CF8A4, (uintptr_t)&customVertexShader - pGTASA - 0x1CEF64);
+    aml->WriteAddr(pGTASA + 0x1CF8AC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF146);
+    aml->WriteAddr(pGTASA + 0x1CF8B4, (uintptr_t)&customVertexShader - pGTASA - 0x1CEF8C);
+    aml->WriteAddr(pGTASA + 0x1CF8E8, (uintptr_t)&customVertexShader - pGTASA - 0x1CF0D2);
+    aml->WriteAddr(pGTASA + 0x1CF8F8, (uintptr_t)&customVertexShader - pGTASA - 0x1CF126);
+    aml->WriteAddr(pGTASA + 0x1CF900, (uintptr_t)&customVertexShader - pGTASA - 0x1CF198);
+    aml->WriteAddr(pGTASA + 0x1CF914, (uintptr_t)&customVertexShader - pGTASA - 0x1CF170);
+    aml->WriteAddr(pGTASA + 0x1CF920, (uintptr_t)&customVertexShader - pGTASA - 0x1CF23C);
+    aml->WriteAddr(pGTASA + 0x1CF928, (uintptr_t)&customVertexShader - pGTASA - 0x1CF21C);
+    aml->WriteAddr(pGTASA + 0x1CF930, (uintptr_t)&customVertexShader - pGTASA - 0x1CF274);
+    aml->WriteAddr(pGTASA + 0x1CF938, (uintptr_t)&customVertexShader - pGTASA - 0x1CF25A);
+    aml->WriteAddr(pGTASA + 0x1CF944, (uintptr_t)&customVertexShader - pGTASA - 0x1CF2A4);
+    aml->WriteAddr(pGTASA + 0x1CF958, (uintptr_t)&customVertexShader - pGTASA - 0x1CF314);
+    aml->WriteAddr(pGTASA + 0x1CF960, (uintptr_t)&customVertexShader - pGTASA - 0x1CF2F8);
+    aml->WriteAddr(pGTASA + 0x1CF968, (uintptr_t)&customVertexShader - pGTASA - 0x1CF33A);
+    aml->WriteAddr(pGTASA + 0x1CF974, (uintptr_t)&customVertexShader - pGTASA - 0x1CF392);
+    aml->WriteAddr(pGTASA + 0x1CF97C, (uintptr_t)&customVertexShader - pGTASA - 0x1CF378);
+    aml->WriteAddr(pGTASA + 0x1CF988, (uintptr_t)&customVertexShader - pGTASA - 0x1CF3B6);
+    aml->WriteAddr(pGTASA + 0x1CF994, (uintptr_t)&customVertexShader - pGTASA - 0x1CF3FA);
+    aml->WriteAddr(pGTASA + 0x1CF99C, (uintptr_t)&customVertexShader - pGTASA - 0x1CF458);
+    aml->WriteAddr(pGTASA + 0x1CF9A4, (uintptr_t)&customVertexShader - pGTASA - 0x1CF43E);
+    aml->WriteAddr(pGTASA + 0x1CF9AC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF41C);
+    aml->WriteAddr(pGTASA + 0x1CF9B4, (uintptr_t)&customVertexShader - pGTASA - 0x1CF516);
+    aml->WriteAddr(pGTASA + 0x1CF9BC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF6F6);
+    aml->WriteAddr(pGTASA + 0x1CF9C4, (uintptr_t)&customVertexShader - pGTASA - 0x1CF71A);
+    aml->WriteAddr(pGTASA + 0x1CF9CC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF492);
+    aml->WriteAddr(pGTASA + 0x1CF9D4, (uintptr_t)&customVertexShader - pGTASA - 0x1CF4E6);
+    aml->WriteAddr(pGTASA + 0x1CF9DC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF534);
+    aml->WriteAddr(pGTASA + 0x1CF9E4, (uintptr_t)&customVertexShader - pGTASA - 0x1CF4C4);
+    aml->WriteAddr(pGTASA + 0x1CF9EC, (uintptr_t)&customVertexShader - pGTASA - 0x1CF554);
+    aml->WriteAddr(pGTASA + 0x1CF9F8, (uintptr_t)&customVertexShader - pGTASA - 0x1CF5EA);
+    aml->WriteAddr(pGTASA + 0x1CFA14, (uintptr_t)&customVertexShader - pGTASA - 0x1CF5AC);
+    aml->WriteAddr(pGTASA + 0x1CFA20, (uintptr_t)&customVertexShader - pGTASA - 0x1CF674);
+    aml->WriteAddr(pGTASA + 0x1CFA30, (uintptr_t)&customVertexShader - pGTASA - 0x1CF6BE);
+    aml->WriteAddr(pGTASA + 0x1CFA78, (uintptr_t)&customVertexShader - pGTASA - 0x1CFA50);
+
+    aml->WriteAddr(pGTASA + 0x1CE834, (uintptr_t)&customPixelShader - pGTASA - 0x1CE192);
+    aml->WriteAddr(pGTASA + 0x1CE854, (uintptr_t)&customPixelShader - pGTASA - 0x1CE1B6);
+    aml->WriteAddr(pGTASA + 0x1CE878, (uintptr_t)&customPixelShader - pGTASA - 0x1CE1FC);
+    aml->WriteAddr(pGTASA + 0x1CE884, (uintptr_t)&customPixelShader - pGTASA - 0x1CE288);
+    aml->WriteAddr(pGTASA + 0x1CE88C, (uintptr_t)&customPixelShader - pGTASA - 0x1CE238);
+    aml->WriteAddr(pGTASA + 0x1CE890, (uintptr_t)&customPixelShader - pGTASA - 0x1CE256);
+    aml->WriteAddr(pGTASA + 0x1CE8B4, (uintptr_t)&customPixelShader - pGTASA - 0x1CE2B0);
+    aml->WriteAddr(pGTASA + 0x1CE8D8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE2EE);
+    aml->WriteAddr(pGTASA + 0x1CE8E0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE322);
+    aml->WriteAddr(pGTASA + 0x1CE8E8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE346);
+    aml->WriteAddr(pGTASA + 0x1CE8F0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE36A);
+    aml->WriteAddr(pGTASA + 0x1CE900, (uintptr_t)&customPixelShader - pGTASA - 0x1CE3BE);
+    aml->WriteAddr(pGTASA + 0x1CE910, (uintptr_t)&customPixelShader - pGTASA - 0x1CE446);
+    aml->WriteAddr(pGTASA + 0x1CE918, (uintptr_t)&customPixelShader - pGTASA - 0x1CE47A);
+    aml->WriteAddr(pGTASA + 0x1CE928, (uintptr_t)&customPixelShader - pGTASA - 0x1CE460);
+    aml->WriteAddr(pGTASA + 0x1CE934, (uintptr_t)&customPixelShader - pGTASA - 0x1CE426);
+    aml->WriteAddr(pGTASA + 0x1CE93C, (uintptr_t)&customPixelShader - pGTASA - 0x1CE4B8);
+    aml->WriteAddr(pGTASA + 0x1CE944, (uintptr_t)&customPixelShader - pGTASA - 0x1CE4D8);
+    aml->WriteAddr(pGTASA + 0x1CE94C, (uintptr_t)&customPixelShader - pGTASA - 0x1CE582);
+    aml->WriteAddr(pGTASA + 0x1CE954, (uintptr_t)&customPixelShader - pGTASA - 0x1CE530);
+    aml->WriteAddr(pGTASA + 0x1CE960, (uintptr_t)&customPixelShader - pGTASA - 0x1CE500);
+    aml->WriteAddr(pGTASA + 0x1CE968, (uintptr_t)&customPixelShader - pGTASA - 0x1CE568);
+    aml->WriteAddr(pGTASA + 0x1CE970, (uintptr_t)&customPixelShader - pGTASA - 0x1CE5A4);
+    aml->WriteAddr(pGTASA + 0x1CE978, (uintptr_t)&customPixelShader - pGTASA - 0x1CE5C8);
+    aml->WriteAddr(pGTASA + 0x1CE994, (uintptr_t)&customPixelShader - pGTASA - 0x1CE65E);
+    aml->WriteAddr(pGTASA + 0x1CE9A0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE686);
+    aml->WriteAddr(pGTASA + 0x1CE9A8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE6A4);
+    aml->WriteAddr(pGTASA + 0x1CE9B0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE6BE);
+    aml->WriteAddr(pGTASA + 0x1CE9B8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE6DC);
+    aml->WriteAddr(pGTASA + 0x1CE9C0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE750);
+    aml->WriteAddr(pGTASA + 0x1CE9C8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE78A);
+    aml->WriteAddr(pGTASA + 0x1CE9D4, (uintptr_t)&customPixelShader - pGTASA - 0x1CE708);
+    aml->WriteAddr(pGTASA + 0x1CE9DC, (uintptr_t)&customPixelShader - pGTASA - 0x1CE73A);
+    aml->WriteAddr(pGTASA + 0x1CE9E4, (uintptr_t)&customPixelShader - pGTASA - 0x1CE768);
+    aml->WriteAddr(pGTASA + 0x1CE9F0, (uintptr_t)&customPixelShader - pGTASA - 0x1CE724);
+    aml->WriteAddr(pGTASA + 0x1CE9F8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7BE);
+    aml->WriteAddr(pGTASA + 0x1CEA00, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7DE);
+    aml->WriteAddr(pGTASA + 0x1CEA08, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7F6);
+    aml->WriteAddr(pGTASA + 0x1CFA7C, (uintptr_t)&customPixelShader - pGTASA - 0x1CFA54);
 }

@@ -29,7 +29,7 @@
 
 #define FLAG_CUSTOM_SKY           0x8000000
 #define FLAG_CUSTOM_BUILDING      0x10000000
-#define FLAG_CUSTOM3              0x20000000
+#define FLAG_CUSTOM_POSTPROCESS   0x20000000
 #define FLAG_CUSTOM2              0x40000000
 #define FLAG_CUSTOM1              0x80000000
 
@@ -43,4 +43,5 @@ public:
     int uid_fUnderWaterness;
     int uid_fRoadsWetness;
     int uid_fFarClipDist;
+    int uid_nEntityModel;
 };
