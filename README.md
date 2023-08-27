@@ -1,4 +1,4 @@
-What am i?
+### What am i?
 
 I am a shader loader for GTA:San Andreas! That's why my name is SA Shader Loader!
 
@@ -13,4 +13,4 @@ I am creating new uniforms for shaders such as:
 - uniform int EntityModel; // Model index of the last entity being draw (-1 if no model)
 
 Few things to notice:
-- Shader size is limited to 4 kilobytes, except "blur", "grading", "shadowResolve", "contrast". They are 16 kilobytes maximum.
+- Shader size is limited to 16 kilobytes
