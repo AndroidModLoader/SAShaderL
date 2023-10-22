@@ -1,8 +1,7 @@
-### What am i?
+### What?
+SA Shader Loader!
 
-I am a shader loader for GTA:San Andreas! That's why my name is SA Shader Loader!
-
-I am creating new uniforms for shaders such as:
+Пример создания шейдера:
 ```
 uniform int ShaderFlags; // A flags for the shaders! Some shaders are using the same code!
 uniform vec3 SunVector; // A XYZ vector of the sun!
@@ -14,5 +13,4 @@ uniform float FarClipDist; // Almost all the time it's 800.0, but not with the m
 uniform int EntityModel; // Model index of the last entity being draw (-1 if no model)
 ```
 
-Few things to notice:
-- Shader size is limited to 16 kilobytes
+* Размер не должен быть более 16 KB
