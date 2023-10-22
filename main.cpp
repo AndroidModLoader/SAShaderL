@@ -7,8 +7,7 @@
 
 #include <GTASA_STRUCTS.h>
 
-//#define DUMP_SHADERS
-
+// tapy.me/weikton
 MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
@@ -393,21 +392,41 @@ extern "C" void OnModLoad()
         *contrastFragment = contrastFragmentOwn;
         fclose(pFile);
     }
-    
-    BuildShader_BackTo = pGTASA + 0x1CD838 + 0x1;
-    aml->Redirect(pGTASA + 0x1CD830 + 0x1, (uintptr_t)BuildShader_inject);
 
-    HOOKPLT(InitES2Shader, pGTASA + 0x671BDC);
-    HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x67632C);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
-    HOOKPLT(RenderSkyPolys, pGTASA + 0x670A7C);
+    // 001A3A78                 MOV             R10, R2
+    BuildShader_BackTo = pGTASA + 0x1A3A78 + 0x1;
+
+    // 001A3A6E                 MOV             R9, R0
+    aml->Redirect(pGTASA + 0x1A3A6E + 0x1, (uintptr_t)BuildShader_inject);
+
+    // 001A3510 _ZN9ES2Shader22InitializeAfterCompileEv ; CODE XREF: ES2Shader::Build(char const*,char const*)+EE↓p
+    HOOKPLT(InitES2Shader, pGTASA + 0x1A3510);
+
+    // 001A3EE8 ; RQ_Command_rqSelectShader(char *&)
+    HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x1A3EE8);
+
+    // 0052A218 ; CClouds::RenderSkyPolys(void)
+    HOOKPLT(RenderSkyPolys, pGTASA + 0x52A218);
+    
     HOOK(OnEntityRender, aml->GetSym(hGTASA, "_ZN7CEntity6RenderEv"));
 
-    SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x6755EC));
-    SET_TO(_glUniform1i, *(void**)(pGTASA + 0x674484));
-    SET_TO(_glUniform1fv, *(void**)(pGTASA + 0x672388));
+    // 005CD86C glGetUniformLocation_ptr DCD __imp_glGetUniformLocation
+    SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x5CD86C));
+    
+    // 005CDA98 glUniform1i_ptr DCD __imp_glUniform1i   ; DATA XREF: glUniform1i+8↑r
+    SET_TO(_glUniform1i, *(void**)(pGTASA + 0x5CDA98));
+    
+    // 005CDA18 glUniform1fv_ptr DCD __imp_glUniform1fv
+    SET_TO(_glUniform1fv, *(void**)(pGTASA + 0x5CDA18));
+    
+    // _Z22emu_CustomShaderCreatePKcS0_
     SET_TO(emu_CustomShaderCreate, aml->GetSym(hGTASA, "_Z22emu_CustomShaderCreatePKcS0_"));
 
-    SET_TO(fragShaders, pGTASA + 0x6B408C);
+    // .bss:0061272C                 EXPORT hackTarget
+    // .bss:0061272C hackTarget      % 4                     ; DATA XREF: LOAD:00073574↑o
+    // .bss:0061272C                                         ; emu_SetAltRenderTarget(int,int)+C8↑o
+    SET_TO(fragShaders, pGTASA + 0x61272C);
+    
     SET_TO(activeShader, aml->GetSym(hGTASA, "_ZN9ES2Shader12activeShaderE"));
     SET_TO(m_VectorToSun, aml->GetSym(hGTASA, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(m_CurrentStoredValue, aml->GetSym(hGTASA, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
@@ -419,7 +438,7 @@ extern "C" void OnModLoad()
     SET_TO(WetRoads, aml->GetSym(hGTASA, "_ZN8CWeather8WetRoadsE"));
     SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
     
-    aml->WriteAddr(pGTASA + 0x1CF73C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEA48);
+    /*aml->WriteAddr(pGTASA + 0x1CF73C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEA48);
     aml->WriteAddr(pGTASA + 0x1CF7AC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEAD0);
     aml->WriteAddr(pGTASA + 0x1CF7C0, (uintptr_t)&customVertexShader - pGTASA - 0x1CEB44);
     aml->WriteAddr(pGTASA + 0x1CF7CC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEB8C);
@@ -515,5 +534,5 @@ extern "C" void OnModLoad()
     aml->WriteAddr(pGTASA + 0x1CE9F8, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7BE);
     aml->WriteAddr(pGTASA + 0x1CEA00, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7DE);
     aml->WriteAddr(pGTASA + 0x1CEA08, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7F6);
-    aml->WriteAddr(pGTASA + 0x1CFA7C, (uintptr_t)&customPixelShader - pGTASA - 0x1CFA54);
+    aml->WriteAddr(pGTASA + 0x1CFA7C, (uintptr_t)&customPixelShader - pGTASA - 0x1CFA54);*/
 }
