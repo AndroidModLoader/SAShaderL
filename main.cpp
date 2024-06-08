@@ -5,17 +5,17 @@
 #include <stdio.h>
 #include "ES3Shader.h"
 
-#define DUMP_SHADERS
+//#define DUMP_SHADERS
 
 MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
 // Savings
-#define SHADER_LEN (16384)
-#define FRAGMENT_SHADER_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/fragment/" #__var2 ".glsl", aml->GetAndroidDataPath());
-#define VERTEX_SHADER_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/vertex/" #__var2 ".glsl", aml->GetAndroidDataPath());
+#define SHADER_LEN                                  (32 * 1024) // 32 kilobytes (4kb without patches)
+#define FRAGMENT_SHADER_STORAGE(__var1, __var2)     sprintf(__var1, "%s/shaders/fragment/" #__var2 ".glsl", aml->GetAndroidDataPath());
+#define VERTEX_SHADER_STORAGE(__var1, __var2)       sprintf(__var1, "%s/shaders/vertex/" #__var2 ".glsl", aml->GetAndroidDataPath());
 #define FRAGMENT_SHADER_GEN_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/fragment/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
-#define VERTEX_SHADER_GEN_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/vertex/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
+#define VERTEX_SHADER_GEN_STORAGE(__var1, __var2)   sprintf(__var1, "%s/shaders/vertex/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
 uintptr_t pGTASA;
 void* hGTASA;
 char blurShaderOwn[SHADER_LEN + 1], gradingShaderOwn[SHADER_LEN + 1], shadowResolveOwn[SHADER_LEN + 1], contrastVertexOwn[SHADER_LEN + 1], contrastFragmentOwn[SHADER_LEN + 1];
