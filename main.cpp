@@ -5,9 +5,7 @@
 #include <stdio.h>
 #include "ES3Shader.h"
 
-#include <GTASA_STRUCTS.h>
-
-//#define DUMP_SHADERS
+#define DUMP_SHADERS
 
 MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
@@ -52,6 +50,8 @@ inline void freadfull(char* buf, size_t maxlen, FILE *f)
 }
 inline const char* FlagsToShaderName(int flags, bool isVertex)
 {
+    if(flags == 0x421) return "reqqqqq";
+    return NULL;
     if(isVertex)
     {
         switch(flags)
@@ -210,6 +210,7 @@ DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
         else
         {
             sprintf(szTmp, "%s/shaders/f/F_%s_0x%X.glsl", aml->GetAndroidDataPath(), szNameCat, flags);
+            logger->Info(szTmp);
             pFile = fopen(szTmp, "w");
             if(pFile != NULL)
             {
@@ -317,6 +318,7 @@ DECL_HOOKv(OnEntityRender, CEntity* self)
 }
 
 // Patch funcs
+#ifdef AML32
 uintptr_t BuildShader_BackTo;
 __attribute__((optnone)) __attribute__((naked)) void BuildShader_inject(void)
 {
@@ -334,6 +336,9 @@ __attribute__((optnone)) __attribute__((naked)) void BuildShader_inject(void)
         "BX R12\n"
     :: "r" (BuildShader_BackTo));
 }
+#else
+
+#endif
 
 // int main!
 extern "C" void OnModLoad()
@@ -349,7 +354,7 @@ extern "C" void OnModLoad()
     SET_TO(contrastFragment, aml->GetSym(hGTASA, "contrastPShader"));
     
     // Other shaders (unstable as hell!)
-    HOOKPLT(RQShaderBuildSource, pGTASA + 0x6720F8);
+    HOOKPLT(RQShaderBuildSource, pGTASA + BYBIT(0x6720F8, 0x8439A0));
     
     FILE *pFile;
     char szTmp[256];
@@ -394,20 +399,31 @@ extern "C" void OnModLoad()
         fclose(pFile);
     }
     
+  #ifdef AML32
     BuildShader_BackTo = pGTASA + 0x1CD838 + 0x1;
     aml->Redirect(pGTASA + 0x1CD830 + 0x1, (uintptr_t)BuildShader_inject);
+  #else
+    aml->Write32(pGTASA + 0x262AB0, MOVBits::Create(sizeof(ES3Shader), 0, false));
+  #endif
 
+  #ifdef AML32
     HOOKPLT(InitES2Shader, pGTASA + 0x671BDC);
     HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x67632C);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
     HOOKPLT(RenderSkyPolys, pGTASA + 0x670A7C);
     HOOK(OnEntityRender, aml->GetSym(hGTASA, "_ZN7CEntity6RenderEv"));
+  #else
+    HOOKBL(InitES2Shader, pGTASA + 0x26213C);
+    HOOKPLT(RQ_Command_rqSelectShader, pGTASA + 0x84A6B0);//aml->GetSym(hGTASA, "_Z25RQ_Command_rqSelectShaderRPc"));
+    HOOKPLT(RenderSkyPolys, pGTASA + 0x8414C8);
+    HOOK(OnEntityRender, aml->GetSym(hGTASA, "_ZN7CEntity6RenderEv"));
+  #endif
 
-    SET_TO(_glGetUniformLocation, *(void**)(pGTASA + 0x6755EC));
-    SET_TO(_glUniform1i, *(void**)(pGTASA + 0x674484));
-    SET_TO(_glUniform1fv, *(void**)(pGTASA + 0x672388));
+    SET_TO(_glGetUniformLocation, *(void**)(pGTASA + BYBIT(0x6755EC, 0x8403B0)));
+    SET_TO(_glUniform1i, *(void**)(pGTASA + BYBIT(0x674484, 0x846858)));
+    SET_TO(_glUniform1fv, *(void**)(pGTASA + BYBIT(0x672388, 0x845048)));
     SET_TO(emu_CustomShaderCreate, aml->GetSym(hGTASA, "_Z22emu_CustomShaderCreatePKcS0_"));
 
-    SET_TO(fragShaders, pGTASA + 0x6B408C);
+    SET_TO(fragShaders, pGTASA + BYBIT(0x6B408C, 0x891058));
     SET_TO(activeShader, aml->GetSym(hGTASA, "_ZN9ES2Shader12activeShaderE"));
     SET_TO(m_VectorToSun, aml->GetSym(hGTASA, "_ZN10CTimeCycle13m_VectorToSunE"));
     SET_TO(m_CurrentStoredValue, aml->GetSym(hGTASA, "_ZN10CTimeCycle20m_CurrentStoredValueE"));
@@ -419,6 +435,7 @@ extern "C" void OnModLoad()
     SET_TO(WetRoads, aml->GetSym(hGTASA, "_ZN8CWeather8WetRoadsE"));
     SET_TO(TheCamera, aml->GetSym(hGTASA, "TheCamera"));
     
+  #ifdef AML32
     aml->WriteAddr(pGTASA + 0x1CF73C, (uintptr_t)&customVertexShader - pGTASA - 0x1CEA48);
     aml->WriteAddr(pGTASA + 0x1CF7AC, (uintptr_t)&customVertexShader - pGTASA - 0x1CEAD0);
     aml->WriteAddr(pGTASA + 0x1CF7C0, (uintptr_t)&customVertexShader - pGTASA - 0x1CEB44);
@@ -516,4 +533,7 @@ extern "C" void OnModLoad()
     aml->WriteAddr(pGTASA + 0x1CEA00, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7DE);
     aml->WriteAddr(pGTASA + 0x1CEA08, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7F6);
     aml->WriteAddr(pGTASA + 0x1CFA7C, (uintptr_t)&customPixelShader - pGTASA - 0x1CFA54);
+  #else
+    // 4kb limit is still there, yet.
+  #endif
 }

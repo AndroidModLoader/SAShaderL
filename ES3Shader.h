@@ -1,5 +1,14 @@
 #include <stdint.h>
-#include "GTASA_STRUCTS.h"
+
+#ifdef AML32
+    #include "AArchASMHelper/Thumbv7_ASMHelper.h"
+    #include "GTASA_STRUCTS.h"
+    using namespace ThumbV7;
+#else
+    #include "AArchASMHelper/ARMv8_ASMHelper.h"
+    #include "GTASA_STRUCTS_210.h"
+    using namespace ARMv8;
+#endif
 
 #define FLAG_ALPHA_TEST           0x01
 #define FLAG_LIGHTING             0x02
