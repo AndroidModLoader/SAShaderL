@@ -7,6 +7,56 @@
 
 //#define DUMP_SHADERS
 
+class SASL : public ISASL
+{
+public:
+    inline void ResetApplyFlagForShaders(int customUniformId)
+    {
+        for(ES3Shader* shader : g_AllShaders)
+        {
+            shader->uniforms[customUniformId].needToApply = true;
+        }
+    }
+    int GetFeaturesVersion() { return 1; }
+    int RegisterUniform(const char* name, eUniformValueType type, uint8_t valuesArraySize, bool alwaysUpdate, void* pointer)
+    {
+        if(CustomStaticUniform::registeredUniforms >= CUSTOM_UNIFORMS) return -1;
+
+        int id = CustomStaticUniform::registeredUniforms;
+        staticUniforms[id].name = name;
+        staticUniforms[id].count = valuesArraySize;
+        staticUniforms[id].type = type;
+        staticUniforms[id].alwaysUpdate = alwaysUpdate;
+        staticUniforms[id].data.iptr = (int*)pointer;
+        ++CustomStaticUniform::registeredUniforms;
+        return id;
+    }
+    void SetUniformInt(int id, int dataNum, int value)
+    {
+        staticUniforms[id].SetInt(dataNum, value);
+        if(staticUniforms[id].IsChanged()) ResetApplyFlagForShaders(id);
+    }
+    void SetUniformUInt(int id, int dataNum, uint32_t value)
+    {
+        staticUniforms[id].SetUInt(dataNum, value);
+        if(staticUniforms[id].IsChanged()) ResetApplyFlagForShaders(id);
+    }
+    void SetUniformFloat(int id, int dataNum, float value)
+    {
+        staticUniforms[id].SetFloat(dataNum, value);
+        if(staticUniforms[id].IsChanged()) ResetApplyFlagForShaders(id);
+    }
+    void SetUniformPtr(int id, int dataNum, void* ptr)
+    {
+        staticUniforms[id].SetPtr(dataNum, ptr);
+        if(staticUniforms[id].IsChanged()) ResetApplyFlagForShaders(id);
+    }
+    void ForceUpdateData(int id)
+    {
+        ResetApplyFlagForShaders(id);
+    }
+} sasl;
+
 MYMOD(net.rusjj.sashader, SAShaderLoader, 1.1, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
@@ -37,13 +87,6 @@ ES3Shader** fragShaders;
 ES3Shader** activeShader;
 
 // Own Funcs
-inline void ResetApplyFlagForShaders(int customUniformId)
-{
-    for(ES3Shader* shader : g_AllShaders)
-    {
-        shader->uniforms[customUniformId].needToApply = true;
-    }
-}
 inline void freadfull(char* buf, size_t maxlen, FILE *f)
 {
     size_t i = 0;
@@ -286,14 +329,14 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
     memset(self->uniforms, 0, sizeof(self->uniforms));
     g_AllShaders.push_back(self);
     
-    self->uid_nShaderFlags = _glGetUniformLocation(self->nShaderId, "ShaderFlags");
-    self->uid_fAngle = _glGetUniformLocation(self->nShaderId, "SunVector");
-    self->uid_nTime = _glGetUniformLocation(self->nShaderId, "Time");
-    self->uid_nGameTimeSeconds = _glGetUniformLocation(self->nShaderId, "GameTimeSeconds");
-    self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
-    self->uid_fRoadsWetness = _glGetUniformLocation(self->nShaderId, "RoadsWetness");
-    self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
-    self->uid_nEntityModel = _glGetUniformLocation(self->nShaderId, "EntityModel");
+    //self->uid_nShaderFlags = _glGetUniformLocation(self->nShaderId, "ShaderFlags");
+    //self->uid_fAngle = _glGetUniformLocation(self->nShaderId, "SunVector");
+    //self->uid_nTime = _glGetUniformLocation(self->nShaderId, "Time");
+    //self->uid_nGameTimeSeconds = _glGetUniformLocation(self->nShaderId, "GameTimeSeconds");
+    //self->uid_fUnderWaterness = _glGetUniformLocation(self->nShaderId, "UnderWaterness");
+    //self->uid_fRoadsWetness = _glGetUniformLocation(self->nShaderId, "RoadsWetness");
+    //self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
+    //self->uid_nEntityModel = _glGetUniformLocation(self->nShaderId, "EntityModel");
 
     for(int i = 0; i < CustomStaticUniform::registeredUniforms; ++i)
     {
@@ -305,21 +348,24 @@ DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
     ES3Shader* shader = **ptr;
     RQ_Command_rqSelectShader(ptr);
 
-    if(shader->uid_nShaderFlags >= 0) _glUniform1i(shader->uid_nShaderFlags, shader->flags);
-    if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, &m_VectorToSun[*m_CurrentStoredValue].x);
-    if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
-    if(shader->uid_nGameTimeSeconds >= 0) _glUniform1i(shader->uid_nGameTimeSeconds, (int)*ms_nGameClockMinutes * 60 + (int)*ms_nGameClockSeconds);
-    if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
-    if(shader->uid_fRoadsWetness >= 0) _glUniform1fv(shader->uid_fRoadsWetness, 1, WetRoads);
-    if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
-    if(shader->uid_nEntityModel >= 0) _glUniform1i(shader->uid_nEntityModel, lastModelId);
+    //if(shader->uid_nShaderFlags >= 0) _glUniform1i(shader->uid_nShaderFlags, shader->flags);
+    //if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, &m_VectorToSun[*m_CurrentStoredValue].x);
+    //if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
+    //if(shader->uid_nGameTimeSeconds >= 0) _glUniform1i(shader->uid_nGameTimeSeconds, (int)*ms_nGameClockMinutes * 60 + (int)*ms_nGameClockSeconds);
+    //if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
+    //if(shader->uid_fRoadsWetness >= 0) _glUniform1fv(shader->uid_fRoadsWetness, 1, WetRoads);
+    //if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
+    //if(shader->uid_nEntityModel >= 0) _glUniform1i(shader->uid_nEntityModel, lastModelId);
 
     for(int i = 0; i < CustomStaticUniform::registeredUniforms; ++i)
     {
         CustomUniform& uniform = shader->uniforms[i];
+        if(uniform.uniformId == -1) continue;
+
         CustomStaticUniform& staticUniform = staticUniforms[i];
-        if(uniform.uniformId != -1 && (staticUniform.alwaysUpdate || uniform.needToApply))
+        if(staticUniform.alwaysUpdate || uniform.needToApply)
         {
+            uniform.needToApply = false;
             switch(staticUniform.type)
             {
                 case UNIFORM_INT:
@@ -386,6 +432,13 @@ inline void ReplaceADRL(uintptr_t addr, uint32_t firstVal, uint32_t secVal)
 #endif
 
 // int main!
+extern "C" void OnModPreLoad()
+{
+    sasl.RegisterUniform("Time", UNIFORM_UINT, 1, true, m_snTimeInMilliseconds);
+    sasl.RegisterUniform("UnderWaterness", UNIFORM_FLOAT, 1, true, UnderWaterness);
+
+    RegisterInterface("SASL", &sasl);
+}
 extern "C" void OnModLoad()
 {
     logger->SetTag("SA ShaderLoader");

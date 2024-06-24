@@ -86,6 +86,11 @@ struct CustomStaticUniform
         prevdata.f[dataNum] = data.f[dataNum];
         data.f[dataNum] = value;
     }
+    inline void SetPtr(int dataNum, void* ptr)
+    {
+        prevdata.iptr = data.iptr;
+        data.iptr = (int*)ptr;
+    }
     inline bool IsChanged()
     {
         for(uint8_t i = 0; i < count; ++i) { if(prevdata.i[i] != data.i[i]) return true; }
@@ -104,14 +109,14 @@ class ES3Shader : public ES2Shader
 public:
     CustomUniform uniforms[CUSTOM_UNIFORMS];
 
-    int uid_nShaderFlags;
-    int uid_fAngle;
-    int uid_nTime;
-    int uid_nGameTimeSeconds;
-    int uid_fUnderWaterness;
-    int uid_fRoadsWetness;
-    int uid_fFarClipDist;
-    int uid_nEntityModel;
+    //int uid_nShaderFlags;
+    //int uid_fAngle;
+    //int uid_nTime;
+    //int uid_nGameTimeSeconds;
+    //int uid_fUnderWaterness;
+    //int uid_fRoadsWetness;
+    //int uid_fFarClipDist;
+    //int uid_nEntityModel;
 };
 extern std::vector<ES3Shader*> g_AllShaders;
 extern CustomStaticUniform staticUniforms[CUSTOM_UNIFORMS];
