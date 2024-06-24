@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <vector>
+#include "isasl.h"
 
 #ifdef AML32
     #include "AArchASMHelper/Thumbv7_ASMHelper.h"
@@ -42,9 +44,66 @@
 #define FLAG_CUSTOM2              0x40000000
 #define FLAG_CUSTOM1              0x80000000
 
+#define CUSTOM_UNIFORMS           128
+
+struct CustomStaticUniform
+{
+    static int registeredUniforms;
+
+    struct Data
+    {
+        union
+        {
+            int i[4];
+            uint32_t u[4];
+            float f[4];
+        };
+        union
+        {
+            int* iptr;
+            uint32_t* uptr;
+            float* fptr;
+        };
+    } data, prevdata;
+    const char* name;
+    int id;
+    eUniformValueType type;
+    bool alwaysUpdate; // no checks
+    uint8_t count; // 1-4
+
+    inline void SetInt(int dataNum, int value)
+    {
+        prevdata.i[dataNum] = data.i[dataNum];
+        data.i[dataNum] = value;
+    }
+    inline void SetUInt(int dataNum, uint32_t value)
+    {
+        prevdata.u[dataNum] = data.u[dataNum];
+        data.u[dataNum] = value;
+    }
+    inline void SetFloat(int dataNum, float value)
+    {
+        prevdata.f[dataNum] = data.f[dataNum];
+        data.f[dataNum] = value;
+    }
+    inline bool IsChanged()
+    {
+        for(uint8_t i = 0; i < count; ++i) { if(prevdata.i[i] != data.i[i]) return true; }
+        return data.iptr != prevdata.iptr;
+    }
+};
+
+struct CustomUniform
+{
+    int uniformId;
+    bool needToApply;
+};
+
 class ES3Shader : public ES2Shader
 {
 public:
+    CustomUniform uniforms[CUSTOM_UNIFORMS];
+
     int uid_nShaderFlags;
     int uid_fAngle;
     int uid_nTime;
@@ -54,3 +113,5 @@ public:
     int uid_fFarClipDist;
     int uid_nEntityModel;
 };
+extern std::vector<ES3Shader*> g_AllShaders;
+extern CustomStaticUniform staticUniforms[CUSTOM_UNIFORMS];

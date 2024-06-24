@@ -1,6 +1,6 @@
 ### What am i?
 
-I am a shader loader for GTA:San Andreas! That's why my name is SA Shader Loader!
+I am a shader loader for GTA:San Andreas! That's why my name is San Andreas Shader Loader (SAShaderL)!
 
 I am creating new uniforms for shaders such as:
 ```
@@ -14,5 +14,9 @@ uniform float FarClipDist; // Almost all the time it's 800.0, but not with the m
 uniform int EntityModel; // Model index of the last entity being draw (-1 if no model)
 ```
 
+In a future i will be able to let mods create their own uniforms!
+
+Also it will allow to add uniforms with game variables through the config file! Easy peasy!
+
 Few things to notice:
-- Shader size is limited to 32 kilobytes (4kb on v2.10, temporarily)
+- Shader size is limited to 32 kilobytes

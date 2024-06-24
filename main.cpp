@@ -7,7 +7,7 @@
 
 //#define DUMP_SHADERS
 
-MYMOD(net.rusjj.sashader, SAShaderLoader, 1.0, RusJJ)
+MYMOD(net.rusjj.sashader, SAShaderLoader, 1.1, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 
 // Savings
@@ -17,7 +17,7 @@ NEEDGAME(com.rockstargames.gtasa)
 #define FRAGMENT_SHADER_GEN_STORAGE(__var1, __var2) sprintf(__var1, "%s/shaders/fragment/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
 #define VERTEX_SHADER_GEN_STORAGE(__var1, __var2)   sprintf(__var1, "%s/shaders/vertex/gen/%s.glsl", aml->GetAndroidDataPath(), __var2);
 uintptr_t pGTASA;
-void* hGTASA;
+void *hGTASA, *hGLES;
 char blurShaderOwn[SHADER_LEN + 1], gradingShaderOwn[SHADER_LEN + 1], shadowResolveOwn[SHADER_LEN + 1], contrastVertexOwn[SHADER_LEN + 1], contrastFragmentOwn[SHADER_LEN + 1];
 char customPixelShader[SHADER_LEN + 1], customVertexShader[SHADER_LEN + 1];
 int lastModelId = -1;
@@ -37,6 +37,13 @@ ES3Shader** fragShaders;
 ES3Shader** activeShader;
 
 // Own Funcs
+inline void ResetApplyFlagForShaders(int customUniformId)
+{
+    for(ES3Shader* shader : g_AllShaders)
+    {
+        shader->uniforms[customUniformId].needToApply = true;
+    }
+}
 inline void freadfull(char* buf, size_t maxlen, FILE *f)
 {
     size_t i = 0;
@@ -188,6 +195,8 @@ EmuShader* (*emu_CustomShaderCreate)(const char* fragShad, const char* vertShad)
 int (*_glGetUniformLocation)(int, const char*);
 void (*_glUniform1i)(int, int);
 void (*_glUniform1fv)(int, int, const float*);
+void (*_glUniform1iv)(int, int, const int*);
+void (*_glUniform1uiv)(int, int, const unsigned int*);
 DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
 {
     int ret = RQShaderBuildSource(flags, pxlsrc, vtxsrc);
@@ -273,6 +282,9 @@ DECL_HOOK(int, RQShaderBuildSource, int flags, char **pxlsrc, char **vtxsrc)
 DECL_HOOKv(InitES2Shader, ES3Shader* self)
 {
     InitES2Shader(self);
+
+    memset(self->uniforms, 0, sizeof(self->uniforms));
+    g_AllShaders.push_back(self);
     
     self->uid_nShaderFlags = _glGetUniformLocation(self->nShaderId, "ShaderFlags");
     self->uid_fAngle = _glGetUniformLocation(self->nShaderId, "SunVector");
@@ -282,6 +294,11 @@ DECL_HOOKv(InitES2Shader, ES3Shader* self)
     self->uid_fRoadsWetness = _glGetUniformLocation(self->nShaderId, "RoadsWetness");
     self->uid_fFarClipDist = _glGetUniformLocation(self->nShaderId, "FarClipDist");
     self->uid_nEntityModel = _glGetUniformLocation(self->nShaderId, "EntityModel");
+
+    for(int i = 0; i < CustomStaticUniform::registeredUniforms; ++i)
+    {
+        self->uniforms[i].uniformId = _glGetUniformLocation(self->nShaderId, staticUniforms[i].name);
+    }
 }
 DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
 {
@@ -289,13 +306,36 @@ DECL_HOOKv(RQ_Command_rqSelectShader, ES3Shader*** ptr)
     RQ_Command_rqSelectShader(ptr);
 
     if(shader->uid_nShaderFlags >= 0) _glUniform1i(shader->uid_nShaderFlags, shader->flags);
-    if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, (float*)&m_VectorToSun[*m_CurrentStoredValue]);
+    if(shader->uid_fAngle >= 0) _glUniform1fv(shader->uid_fAngle, 3, &m_VectorToSun[*m_CurrentStoredValue].x);
     if(shader->uid_nTime >= 0) _glUniform1i(shader->uid_nTime, *m_snTimeInMilliseconds);
     if(shader->uid_nGameTimeSeconds >= 0) _glUniform1i(shader->uid_nGameTimeSeconds, (int)*ms_nGameClockMinutes * 60 + (int)*ms_nGameClockSeconds);
     if(shader->uid_fUnderWaterness >= 0) _glUniform1fv(shader->uid_fUnderWaterness, 1, UnderWaterness);
     if(shader->uid_fRoadsWetness >= 0) _glUniform1fv(shader->uid_fRoadsWetness, 1, WetRoads);
     if(shader->uid_fFarClipDist >= 0 && TheCamera->m_pRwCamera != NULL) _glUniform1fv(shader->uid_fFarClipDist, 1, &TheCamera->m_pRwCamera->farClip);
     if(shader->uid_nEntityModel >= 0) _glUniform1i(shader->uid_nEntityModel, lastModelId);
+
+    for(int i = 0; i < CustomStaticUniform::registeredUniforms; ++i)
+    {
+        CustomUniform& uniform = shader->uniforms[i];
+        CustomStaticUniform& staticUniform = staticUniforms[i];
+        if(uniform.uniformId != -1 && (staticUniform.alwaysUpdate || uniform.needToApply))
+        {
+            switch(staticUniform.type)
+            {
+                case UNIFORM_INT:
+                    _glUniform1iv (uniform.uniformId, staticUniform.count, staticUniform.data.iptr ? staticUniform.data.iptr : &staticUniform.data.i[0]);
+                    break;
+                case UNIFORM_UINT:
+                    _glUniform1uiv(uniform.uniformId, staticUniform.count, staticUniform.data.uptr ? staticUniform.data.uptr : &staticUniform.data.u[0]);
+                    break;
+                case UNIFORM_FLOAT:
+                    _glUniform1fv (uniform.uniformId, staticUniform.count, staticUniform.data.fptr ? staticUniform.data.fptr : &staticUniform.data.f[0]);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 }
 DECL_HOOKv(RenderSkyPolys)
 {
@@ -305,9 +345,9 @@ DECL_HOOKv(RenderSkyPolys)
 }
 DECL_HOOKv(OnEntityRender, CEntity* self)
 {
+    lastModelId = self->m_nModelIndex;
     if(self->m_nType == ENTITY_TYPE_BUILDING)
     {
-        lastModelId = self->m_nModelIndex;
         *curShaderStateFlags |= FLAG_CUSTOM_BUILDING;
         OnEntityRender(self);
         *curShaderStateFlags &= ~FLAG_CUSTOM_BUILDING;
@@ -315,6 +355,7 @@ DECL_HOOKv(OnEntityRender, CEntity* self)
         return;
     }
     OnEntityRender(self);
+    lastModelId = -1;
 }
 
 // Patch funcs
@@ -337,15 +378,32 @@ __attribute__((optnone)) __attribute__((naked)) void BuildShader_inject(void)
     :: "r" (BuildShader_BackTo));
 }
 #else
-
+inline void ReplaceADRL(uintptr_t addr, uint32_t firstVal, uint32_t secVal)
+{
+    aml->Write32(addr, firstVal);
+    aml->Write32(addr + 0x4, secVal);
+}
 #endif
 
 // int main!
 extern "C" void OnModLoad()
 {
     logger->SetTag("SA ShaderLoader");
+
     pGTASA = aml->GetLib("libGTASA.so");
     hGTASA = aml->GetLibHandle("libGTASA.so");
+    if(!pGTASA || !hGTASA)
+    {
+        logger->Error("GTA:SA is not loaded :o");
+        return;
+    }
+    
+    hGLES = aml->GetLibHandle("libGLESv2.so");
+    if(!hGLES)
+    {
+        logger->Error("Open GLES is not loaded :o");
+        return;
+    }
     
     SET_TO(blurShader, aml->GetSym(hGTASA, "blurPShader"));
     SET_TO(gradingShader, aml->GetSym(hGTASA, "gradingPShader"));
@@ -422,6 +480,8 @@ extern "C" void OnModLoad()
     SET_TO(_glUniform1i, *(void**)(pGTASA + BYBIT(0x674484, 0x846858)));
     SET_TO(_glUniform1fv, *(void**)(pGTASA + BYBIT(0x672388, 0x845048)));
     SET_TO(emu_CustomShaderCreate, aml->GetSym(hGTASA, "_Z22emu_CustomShaderCreatePKcS0_"));
+    SET_TO(_glUniform1iv, aml->GetSym(hGLES, "glUniform1iv"));
+    SET_TO(_glUniform1uiv, aml->GetSym(hGLES, "glUniform1uiv"));
 
     SET_TO(fragShaders, pGTASA + BYBIT(0x6B408C, 0x891058));
     SET_TO(activeShader, aml->GetSym(hGTASA, "_ZN9ES2Shader12activeShaderE"));
@@ -533,7 +593,95 @@ extern "C" void OnModLoad()
     aml->WriteAddr(pGTASA + 0x1CEA00, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7DE);
     aml->WriteAddr(pGTASA + 0x1CEA08, (uintptr_t)&customPixelShader - pGTASA - 0x1CE7F6);
     aml->WriteAddr(pGTASA + 0x1CFA7C, (uintptr_t)&customPixelShader - pGTASA - 0x1CFA54);
-  #else
-    // 4kb limit is still there, yet.
+  #else    
+    aml->WriteAddr(pGTASA + 0x89A198, &customVertexShader);
+    aml->Write32(pGTASA + 0x264C64, 0xD00031B7);
+    aml->Write32(pGTASA + 0x264C6C, 0xF940CEF7);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x44,  0xF00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xF0,  0xF00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x17C, 0xF00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x1DC, 0xF00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x204, 0xF00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x250, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x298, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x2F4, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x318, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x344, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x3C0, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x3E8, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x42C, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x450, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x484, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x4B4, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x508, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x544, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x568, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x590, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x71C, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x790, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x7DC, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x86C, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x894, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x8C8, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x998, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0x9D0, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xA40, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xA68, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xAC0, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xAE8, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xB38, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xB8C, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xBC4, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xC58, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xC7C, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xCCC, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xCF0, 0xD00031B4, 0xF940CE94);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xD90, 0xD00031B3, 0xF940CE73);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xDF8, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xE4C, 0xD00031A0, 0xF940CC00);
+    ReplaceADRL(pGTASA + 0x263DBC + 0xE74, 0xD00031A0, 0xF940CC00);
+    
+    aml->WriteAddr(pGTASA + 0x898190, &customPixelShader);
+    aml->Write32(pGTASA + 0x264C60, 0x900031B6);
+    aml->Write32(pGTASA + 0x264C68, 0xF940CAD6);
+    ReplaceADRL(pGTASA + 0x263618 + 0x48,  0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x70,  0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0xC8,  0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x124, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x16C, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x194, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x1E8, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x21C, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x244, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x26C, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x2D4, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x388, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x3AC, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x3D8, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x40C, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x460, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x488, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x4B0, 0xB00031B5, 0xF940CAB5);
+    ReplaceADRL(pGTASA + 0x263618 + 0x570, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x5A0, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x5C8, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x5EC, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x614, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x678, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x69C, 0xB00031B4, 0xF940CA94);
+    ReplaceADRL(pGTASA + 0x263618 + 0x6D0, 0xB00031B4, 0xF940CA94);
+    ReplaceADRL(pGTASA + 0x263618 + 0x718, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x740, 0xB00031A0, 0xF940C800);
+    ReplaceADRL(pGTASA + 0x263618 + 0x764, 0xB00031A0, 0xF940C800);
   #endif
+
+    memset(staticUniforms, 0, sizeof(staticUniforms));
+    for(int i = 0; i < CUSTOM_UNIFORMS; ++i)
+    {
+        staticUniforms[i].id = i;
+    }
 }
+
+int CustomStaticUniform::registeredUniforms = 0;
+CustomStaticUniform staticUniforms[CUSTOM_UNIFORMS];
+std::vector<ES3Shader*> g_AllShaders;
